@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate serde_derive;
 
-use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::ops::Rem;
 
@@ -14,6 +13,11 @@ use crate::spatial_hashmap::SpatialHashMap;
 #[derive(Serialize)]
 struct SimulationData {
     pub positions: Vec<VectorN>,
+}
+
+#[derive(Serialize)]
+struct DebugData {
+    pub indices: Vec<usize>,
 }
 
 type VectorN = Vector2<f32>;
@@ -74,8 +78,8 @@ pub struct Simulation {
     particles: Particles,
     gravity: VectorN,
     hashmap: SpatialHashMap,
-    width: usize,
-    height: usize,
+    width: f32,
+    height: f32,
     params: SimulationParameters,
 }
 
@@ -84,8 +88,8 @@ impl Simulation {
     #[wasm_bindgen(constructor)]
     pub fn new(
         particles_count: usize,
-        width: usize,
-        height: usize,
+        width: f32,
+        height: f32,
         theta_step: f32,
         radius_step: f32,
     ) -> Simulation {
@@ -94,7 +98,7 @@ impl Simulation {
         Simulation {
             particles: Particles::new(particles_count, theta_step, radius_step),
             gravity: VectorN::new(0.0, -9.8),
-            hashmap: SpatialHashMap::new(width, height, 2.0),
+            hashmap: SpatialHashMap::new(width, height, 2.0, 2.0),
             width,
             height,
             params,
@@ -114,16 +118,31 @@ impl Simulation {
         JsValue::from_serde(&simulation_data).unwrap()
     }
 
+    /// Serialize and send debug_data to JavaScript
+    pub fn send_debug_to_js(&self, x: f32, y: f32) -> JsValue {
+        let debug_data = DebugData {
+            indices: [0, 1, 2, 3, 4, 5, 6].to_vec(),
+        };
+
+        JsValue::from_serde(&debug_data).unwrap()
+    }
+
     pub fn step(&mut self, dt: f32) {
         let particles = &mut self.particles;
         for i in 0..particles.count() {
             particles.prev_position[i] = particles.position[i];
 
             // Apply forces
-            particles.velocity[i] += self.gravity * dt;
+            // particles.velocity[i] += self.gravity * dt;
 
             // Apply velocity
             particles.position[i] += particles.velocity[i] * dt;
+
+            // Update spatial hashmap
+            {
+                // let i
+                // hashmap.insert()
+            }
         }
     }
 
@@ -135,18 +154,3 @@ impl Simulation {
         // return -1.0 * (dividend / divisor) * Kernels.GradientSpiky(r, smoothingRadius);
     }
 }
-
-// private int GetHashValue(Vector2 pos)
-// {
-//     int x = Mathf.FloorToInt(pos.x / cellSize);
-//     int y = Mathf.FloorToInt(pos.y / cellSize);
-
-//     return x + y * numRows;
-// }
-
-// Vector2 GetHashKey(Vector2 position)
-// {
-//     int x = Mathf.FloorToInt(position.x / cellSize);
-//     int y = Mathf.FloorToInt(position.y / cellSize);
-//     return new Vector2(x, y);
-// }

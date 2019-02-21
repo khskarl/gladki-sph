@@ -1,15 +1,27 @@
 pub struct SpatialHashMap {
   width: usize,
   height: usize,
+  width_real: f32,
+  height_real: f32,
   query_radius: f32,
   cells: Vec<Vec<usize>>,
 }
 
 impl SpatialHashMap {
-  pub fn new(width: usize, height: usize, query_radius: f32) -> SpatialHashMap {
+  pub fn new(
+    width_real: f32,
+    height_real: f32,
+    query_radius: f32,
+    cell_size: f32,
+  ) -> SpatialHashMap {
+    let width = (width_real / cell_size).ceil() as usize;
+    let height = (height_real / cell_size).ceil() as usize;
+
     SpatialHashMap {
       width,
       height,
+      width_real,
+      height_real,
       query_radius,
       cells: vec![Vec::new(); width * height],
     }
