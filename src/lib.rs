@@ -1,11 +1,15 @@
 #[macro_use]
 extern crate serde_derive;
 
+use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::ops::Rem;
 
 use nalgebra::Vector2;
 use wasm_bindgen::prelude::*;
+
+mod spatial_hashmap;
+use crate::spatial_hashmap::SpatialHashMap;
 
 #[derive(Serialize)]
 struct SimulationData {
@@ -63,26 +67,37 @@ impl Particles {
     }
 }
 
+struct SimulationParameters {}
+
 #[wasm_bindgen]
 pub struct Simulation {
     particles: Particles,
     gravity: VectorN,
+    hashmap: SpatialHashMap,
+    width: usize,
+    height: usize,
+    params: SimulationParameters,
 }
 
 #[wasm_bindgen]
 impl Simulation {
     #[wasm_bindgen(constructor)]
-    pub fn new(particles_count: usize, theta_step: f32, radius_step: f32) -> Simulation {
+    pub fn new(
+        particles_count: usize,
+        width: usize,
+        height: usize,
+        theta_step: f32,
+        radius_step: f32,
+    ) -> Simulation {
+        let params = SimulationParameters {};
+
         Simulation {
             particles: Particles::new(particles_count, theta_step, radius_step),
             gravity: VectorN::new(0.0, -9.8),
-        }
-    }
-
-    pub fn step(&mut self, dt: f32) {
-        for i in 0..self.particles.count() {
-            self.particles.velocity[i] += self.gravity * dt;
-            self.particles.position[i] += self.particles.velocity[i] * dt;
+            hashmap: SpatialHashMap::new(width, height, 2.0),
+            width,
+            height,
+            params,
         }
     }
 
@@ -90,6 +105,7 @@ impl Simulation {
         self.particles.count()
     }
 
+    /// Serialize and send the simulation state to JavaScript
     pub fn send_simulation_to_js(&self) -> JsValue {
         let simulation_data = SimulationData {
             positions: self.particles.position.clone(),
@@ -97,4 +113,40 @@ impl Simulation {
 
         JsValue::from_serde(&simulation_data).unwrap()
     }
+
+    pub fn step(&mut self, dt: f32) {
+        let particles = &mut self.particles;
+        for i in 0..particles.count() {
+            particles.prev_position[i] = particles.position[i];
+
+            // Apply forces
+            particles.velocity[i] += self.gravity * dt;
+
+            // Apply velocity
+            particles.position[i] += particles.velocity[i] * dt;
+        }
+    }
+
+    fn apply_pressure(&mut self, p0: usize, p1: usize) {
+        // let dividend = self.particles.pressure[p0] + self.particles.pressure[p1];
+        // let divisor = 2 * self.particles.density[p0] * self.particles.density[p1];
+
+        // let r = self.particles.position[p0] - self.particles.position[p1];
+        // return -1.0 * (dividend / divisor) * Kernels.GradientSpiky(r, smoothingRadius);
+    }
 }
+
+// private int GetHashValue(Vector2 pos)
+// {
+//     int x = Mathf.FloorToInt(pos.x / cellSize);
+//     int y = Mathf.FloorToInt(pos.y / cellSize);
+
+//     return x + y * numRows;
+// }
+
+// Vector2 GetHashKey(Vector2 position)
+// {
+//     int x = Mathf.FloorToInt(position.x / cellSize);
+//     int y = Mathf.FloorToInt(position.y / cellSize);
+//     return new Vector2(x, y);
+// }
