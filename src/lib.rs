@@ -136,7 +136,13 @@ impl Simulation {
             particles.prev_position[i] = particles.position[i];
 
             // Apply forces
-            // particles.velocity[i] += self.gravity * dt;
+            particles.velocity[i] += self.gravity * dt * 10.0;
+
+            // External forces
+            if particles.position[i].y < -self.height / 2.0 {
+                particles.velocity[i].y *= -0.9;
+                particles.position[i].y = -self.height / 2.0;
+            }
 
             // Apply velocity
             particles.position[i] += particles.velocity[i] * dt;
