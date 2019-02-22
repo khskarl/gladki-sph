@@ -122,6 +122,10 @@ impl Simulation {
         self.particles.count()
     }
 
+    pub fn get_particles_positions(&self) -> Vec<VectorN> {
+        self.particles.position.clone()
+    }
+
     /// Serialize and send the simulation state to JavaScript
     pub fn send_simulation_to_js(&self) -> JsValue {
         let simulation_data = SimulationData {
@@ -204,7 +208,7 @@ impl Simulation {
                 }
             }
             // console_log!("Pressure: {}", pressure);
-            self.particles.acceleration[i] = pressure + viscosity;
+            self.particles.acceleration[i] = pressure + viscosity + self.gravity;
         }
 
         for i in 0..self.particles.count() {
@@ -216,6 +220,7 @@ impl Simulation {
 
             if self.particles.position[i].magnitude_squared() > self.width.powi(2) {
                 self.particles.position[i] = self.particles.position[i].normalize() * self.width;
+                self.particles.velocity[i] *= -0.6;
             }
 
             self.particles.prev_acceleration[i] = self.particles.acceleration[i];

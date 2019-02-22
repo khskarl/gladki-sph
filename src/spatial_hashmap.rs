@@ -28,13 +28,13 @@ impl SpatialHashMap {
   }
 
   pub fn insert(&mut self, x: f32, y: f32, data: usize) {
-    println!("{}", data);
-    print!("({},{})", x, y);
+    // println!("{}", data);
+    // print!("({},{})", x, y);
 
     let (x, y) = self.normalize_position(x, y);
-    print!(" -> ({},{})", x, y);
+    // print!(" -> ({},{})", x, y);
     let (i, j) = (x.floor() as usize, y.floor() as usize);
-    println!(" -> ({},{})", i, j);
+    // println!(" -> ({},{})", i, j);
 
     let index = self.index(i, j);
     self.cells[index].push(data);
@@ -49,10 +49,10 @@ impl SpatialHashMap {
     let (left, right, bottom, top) = self.get_neighbor_indices(x, y);
 
     let mut results = Vec::<usize>::new();
-    println!(
-      "left: {}, right:{}, bottom:{}, top:{}",
-      left, right, bottom, top
-    );
+    // println!(
+    //   "left: {}, right:{}, bottom:{}, top:{}",
+    //   left, right, bottom, top
+    // );
 
     for i in left..=right {
       for j in bottom..=top {
