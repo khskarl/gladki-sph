@@ -10,6 +10,10 @@ use wasm_bindgen::prelude::*;
 mod spatial_hashmap;
 use crate::spatial_hashmap::SpatialHashMap;
 
+mod kernels;
+mod wasm_utils;
+use crate::wasm_utils::*;
+
 #[derive(Serialize)]
 struct SimulationData {
     pub positions: Vec<VectorN>,
@@ -26,9 +30,11 @@ pub struct Particles {
     pub position: Vec<VectorN>,
     pub prev_position: Vec<VectorN>,
     pub velocity: Vec<VectorN>,
+    pub acceleration: Vec<VectorN>,
+    pub prev_acceleration: Vec<VectorN>,
     pub pressure: Vec<f32>,
     pub near_pressure: Vec<f32>,
-    pub gradient: Vec<f32>,
+    pub density: Vec<f32>,
 }
 
 impl Particles {
@@ -36,9 +42,11 @@ impl Particles {
         let mut position = Vec::<VectorN>::new();
         let mut prev_position = Vec::<VectorN>::new();
         let mut velocity = Vec::<VectorN>::new();
+        let mut acceleration = Vec::<VectorN>::new();
+        let mut prev_acceleration = Vec::<VectorN>::new();
         let mut pressure = Vec::<f32>::new();
         let mut near_pressure = Vec::<f32>::new();
-        let mut gradient = Vec::<f32>::new();
+        let mut density = Vec::<f32>::new();
 
         for i in 0..count {
             let theta = i as f32 * theta_step;
@@ -51,18 +59,22 @@ impl Particles {
             position.push(VectorN::new(x, y));
             prev_position.push(VectorN::new(0.0, 0.0));
             velocity.push(VectorN::new(0.0, 0.0));
+            acceleration.push(VectorN::new(0.0, 0.0));
+            prev_acceleration.push(VectorN::new(0.0, 0.0));
             pressure.push(0.0);
             near_pressure.push(0.0);
-            gradient.push(0.0);
+            density.push(0.0);
         }
 
         Particles {
             position,
             prev_position,
             velocity,
+            acceleration,
+            prev_acceleration,
             pressure,
             near_pressure,
-            gradient,
+            density,
         }
     }
 
@@ -99,7 +111,7 @@ impl Simulation {
         Simulation {
             particles: Particles::new(particles_count, theta_step, radius_step),
             gravity: VectorN::new(0.0, -9.8),
-            hashmap: SpatialHashMap::new(width, height, neighbor_radius, 10.0),
+            hashmap: SpatialHashMap::new(width, height, neighbor_radius, 5.0),
             width,
             height,
             params,
@@ -129,38 +141,90 @@ impl Simulation {
     }
 
     pub fn step(&mut self, dt: f32) {
+        // Prepare particles by inserting their index into the hashmap
+        // and updating their position from the previous frame
         self.hashmap.clear();
-
-        let particles = &mut self.particles;
-        for i in 0..particles.count() {
-            particles.prev_position[i] = particles.position[i];
-
-            // Apply forces
-            particles.velocity[i] += self.gravity * dt * 10.0;
-
-            // External forces
-            if particles.position[i].y < -self.height / 2.0 {
-                particles.velocity[i].y *= -0.9;
-                particles.position[i].y = -self.height / 2.0;
-            }
-
-            // Apply velocity
-            particles.position[i] += particles.velocity[i] * dt;
-
+        for i in 0..self.particles.count() {
             // Update spatial hashmap
-            {
-                // let i
-                self.hashmap
-                    .insert(particles.position[i].x, particles.position[i].y, i);
+            self.hashmap.insert(
+                self.particles.position[i].x,
+                self.particles.position[i].y,
+                i,
+            );
+        }
+
+        //
+        for i in 0..self.particles.count() {
+            let mut density = 0.0;
+
+            for j in self.find_neighbors(i) {
+                if i == j {
+                    continue;
+                }
+
+                let distance_squared =
+                    (self.particles.position[i] - self.particles.position[j]).magnitude_squared();
+
+                let smoothing_radius = 10.0;
+                if distance_squared < smoothing_radius * smoothing_radius {
+                    density += (1.0 - distance_squared.sqrt() / smoothing_radius).powi(2);
+                }
             }
+
+            let rest_density = 82.0;
+            let stiffness = 5000.0;
+            // console_log!("Desnity: {}", density);
+
+            self.particles.density[i] = density.max(rest_density);
+            self.particles.pressure[i] = stiffness * (density - rest_density);
+        }
+
+        for i in 0..self.particles.count() {
+            let mut pressure = VectorN::new(0.0, 0.0);
+            let mut viscosity = VectorN::new(0.0, 0.0);
+
+            // console_log!("self.find_neighbors(i): {:?}", self.find_neighbors(i));
+
+            for j in self.find_neighbors(i) {
+                if i == j {
+                    continue;
+                }
+
+                // Pressure gradient
+                pressure += {
+                    let dividend = self.particles.pressure[i] + self.particles.pressure[j];
+                    let divisor = 2.0 * self.particles.density[i] + self.particles.density[j];
+                    // console_log!("Dividend: {}, Divisor: {}", dividend, divisor);
+
+                    let r = self.particles.position[j] - self.particles.position[i];
+                    // console_log!("r: {}", r.magnitude());
+                    let smoothing_radius = 10.0;
+
+                    1.0 * (dividend / divisor) * kernels::spiky(r, smoothing_radius)
+                }
+            }
+            // console_log!("Pressure: {}", pressure);
+            self.particles.acceleration[i] = pressure + viscosity;
+        }
+
+        for i in 0..self.particles.count() {
+            self.particles.velocity[i] +=
+                0.5 * (self.particles.prev_acceleration[i] + self.particles.acceleration[i]) * dt;
+
+            self.particles.position[i] +=
+                self.particles.velocity[i] * dt + 0.5 * self.particles.acceleration[i] * dt * dt;
+
+            if self.particles.position[i].magnitude_squared() > self.width.powi(2) {
+                self.particles.position[i] = self.particles.position[i].normalize() * self.width;
+            }
+
+            self.particles.prev_acceleration[i] = self.particles.acceleration[i];
+            self.particles.prev_position[i] = self.particles.position[i];
         }
     }
 
-    fn apply_pressure(&mut self, p0: usize, p1: usize) {
-        // let dividend = self.particles.pressure[p0] + self.particles.pressure[p1];
-        // let divisor = 2 * self.particles.density[p0] * self.particles.density[p1];
-
-        // let r = self.particles.position[p0] - self.particles.position[p1];
-        // return -1.0 * (dividend / divisor) * Kernels.GradientSpiky(r, smoothingRadius);
+    fn find_neighbors(&self, i: usize) -> Vec<usize> {
+        self.hashmap
+            .query(self.particles.position[i].x, self.particles.position[i].y)
     }
 }
