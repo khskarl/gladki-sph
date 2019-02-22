@@ -41,9 +41,9 @@ impl Particles {
         let mut gradient = Vec::<f32>::new();
 
         for i in 0..count {
-            let unwrapped_theta = i as f32 * theta_step;
-            let theta = unwrapped_theta / (PI * 2.0);
-            let radius = radius_step * unwrapped_theta.rem(PI * 2.0) + 0.2;
+            let theta = i as f32 * theta_step;
+            let magical_theta = (theta / (PI * 2.0)).floor();
+            let radius = radius_step * magical_theta + 0.2;
 
             let x = radius * theta.cos();
             let y = radius * theta.sin();
@@ -90,6 +90,7 @@ impl Simulation {
         particles_count: usize,
         width: f32,
         height: f32,
+        neighbor_radius: f32,
         theta_step: f32,
         radius_step: f32,
     ) -> Simulation {
@@ -98,7 +99,7 @@ impl Simulation {
         Simulation {
             particles: Particles::new(particles_count, theta_step, radius_step),
             gravity: VectorN::new(0.0, -9.8),
-            hashmap: SpatialHashMap::new(width, height, 2.0, 2.0),
+            hashmap: SpatialHashMap::new(width, height, neighbor_radius, 10.0),
             width,
             height,
             params,
@@ -121,13 +122,15 @@ impl Simulation {
     /// Serialize and send debug_data to JavaScript
     pub fn send_debug_to_js(&self, x: f32, y: f32) -> JsValue {
         let debug_data = DebugData {
-            indices: [0, 1, 2, 3, 4, 5, 6].to_vec(),
+            indices: self.hashmap.query(x, y),
         };
 
         JsValue::from_serde(&debug_data).unwrap()
     }
 
     pub fn step(&mut self, dt: f32) {
+        self.hashmap.clear();
+
         let particles = &mut self.particles;
         for i in 0..particles.count() {
             particles.prev_position[i] = particles.position[i];
@@ -141,7 +144,8 @@ impl Simulation {
             // Update spatial hashmap
             {
                 // let i
-                // hashmap.insert()
+                self.hashmap
+                    .insert(particles.position[i].x, particles.position[i].y, i);
             }
         }
     }
