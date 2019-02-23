@@ -101,6 +101,7 @@ impl Particles {
 }
 
 #[wasm_bindgen]
+#[derive(Clone, Debug, Copy)]
 ///
 ///
 ///
@@ -139,7 +140,7 @@ pub struct Simulation {
     particles: Particles,
     radius: f32,
     hashmap: SpatialHashMap,
-    params: SimulationParameters,
+    pub params: SimulationParameters,
     gravity: VectorN,
 }
 
@@ -158,7 +159,7 @@ impl Simulation {
                 radius * 2.0,
                 radius * 2.0,
                 params.smoothing_radius,
-                params.smoothing_radius,
+                params.smoothing_radius / 2.0,
             ),
             gravity: VectorN::new(0.0, -9.8),
             radius,
