@@ -32,6 +32,17 @@ pub struct Distribution {
     pub radius_step: f32,
 }
 
+#[wasm_bindgen]
+impl Distribution {
+    #[wasm_bindgen(constructor)]
+    pub fn new(theta_step: f32, radius_step: f32) -> Distribution {
+        Distribution {
+            theta_step,
+            radius_step,
+        }
+    }
+}
+
 pub struct Particles {
     pub position: Vec<VectorN>,
     pub prev_position: Vec<VectorN>,
@@ -104,6 +115,26 @@ pub struct SimulationParameters {
 }
 
 #[wasm_bindgen]
+impl SimulationParameters {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        smoothing_radius: f32,
+        rest_density: f32,
+        stiffness: f32,
+        stiffness_near: f32,
+        has_gravity: bool,
+    ) -> SimulationParameters {
+        SimulationParameters {
+            smoothing_radius,
+            rest_density,
+            stiffness,
+            stiffness_near,
+            has_gravity,
+        }
+    }
+}
+
+#[wasm_bindgen]
 pub struct Simulation {
     particles: Particles,
     radius: f32,
@@ -144,8 +175,8 @@ impl Simulation {
         self.particles.position.clone()
     }
 
-    #[cfg(target_arch = "wasm")]
     /// Serialize and send the simulation state to JavaScript
+    #[cfg(target_arch = "wasm32")]
     pub fn send_simulation_to_js(&self) -> JsValue {
         let simulation_data = SimulationData {
             positions: self.particles.position.clone(),
@@ -193,7 +224,7 @@ impl Simulation {
             if self.particles.position[i].magnitude_squared() > self.radius.powi(2) {
                 self.particles.position[i] = self.particles.position[i].normalize() * self.radius;
                 self.particles.prev_position[i] =
-                    self.particles.position[i].normalize() * self.radius * 1.01;
+                    self.particles.position[i].normalize() * self.radius * 1.001;
             }
 
             self.particles.velocity[i] =
