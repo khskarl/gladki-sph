@@ -26,6 +26,7 @@ struct DebugData {
 
 type VectorN = Vector2<f32>;
 
+#[wasm_bindgen]
 pub struct Distribution {
     pub theta_step: f32,
     pub radius_step: f32,
@@ -88,6 +89,8 @@ impl Particles {
     }
 }
 
+#[wasm_bindgen]
+///
 ///
 ///
 ///
@@ -97,7 +100,7 @@ pub struct SimulationParameters {
     pub rest_density: f32,
     pub stiffness: f32,
     pub stiffness_near: f32,
-    pub gravity: VectorN,
+    pub has_gravity: bool,
 }
 
 #[wasm_bindgen]
@@ -106,6 +109,7 @@ pub struct Simulation {
     radius: f32,
     hashmap: SpatialHashMap,
     params: SimulationParameters,
+    gravity: VectorN,
 }
 
 #[wasm_bindgen]
@@ -125,6 +129,7 @@ impl Simulation {
                 params.smoothing_radius,
                 params.smoothing_radius,
             ),
+            gravity: VectorN::new(0.0, -9.8),
             radius,
             params,
         }
@@ -134,10 +139,12 @@ impl Simulation {
         self.particles.count()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn get_particles_positions(&self) -> Vec<VectorN> {
         self.particles.position.clone()
     }
 
+    #[cfg(target_arch = "wasm")]
     /// Serialize and send the simulation state to JavaScript
     pub fn send_simulation_to_js(&self) -> JsValue {
         let simulation_data = SimulationData {
@@ -161,6 +168,16 @@ impl Simulation {
         // and updating their position from the previous frame
         self.hashmap.clear();
         for i in 0..self.particles.count() {
+            if self.params.has_gravity {
+                self.particles.velocity[i] += self.gravity * dt;
+            }
+
+            // Save previous position
+            self.particles.prev_position[i] = self.particles.position[i];
+
+            // Advance to predicted position
+            self.particles.position[i] += self.particles.velocity[i] * dt;
+
             // Update spatial hashmap
             self.hashmap.insert(
                 self.particles.position[i].x,
@@ -170,74 +187,73 @@ impl Simulation {
         }
 
         //
+        self.double_density_relaxation(dt);
+
+        for i in 0..self.particles.count() {
+            if self.particles.position[i].magnitude_squared() > self.radius.powi(2) {
+                self.particles.position[i] = self.particles.position[i].normalize() * self.radius;
+                self.particles.prev_position[i] =
+                    self.particles.position[i].normalize() * self.radius * 1.01;
+            }
+
+            self.particles.velocity[i] =
+                (self.particles.position[i] - self.particles.prev_position[i]) / dt;
+        }
+    }
+
+    fn double_density_relaxation(&mut self, dt: f32) {
         for i in 0..self.particles.count() {
             let mut density = 0.0;
             let mut near_density = 0.0;
 
-            for j in self.find_neighbors(i) {
+            let neighbors = self.find_neighbors(i);
+            for j in neighbors {
                 if i == j {
                     continue;
                 }
 
-                let distance_squared =
-                    (self.particles.position[i] - self.particles.position[j]).magnitude_squared();
+                let r = self.particles.position[j] - self.particles.position[i];
+                let q = r.magnitude() / self.params.smoothing_radius;
 
-                if distance_squared < self.params.smoothing_radius.powi(2) {
-                    let coefficient = 1.0 - distance_squared.sqrt() / self.params.smoothing_radius;
-                    density += coefficient.powi(2);
-                    near_density += coefficient.powi(3);
+                if q < 1.0 {
+                    density += (1.0 - q).powi(2);
+                    near_density += (1.0 - q).powi(3);
                 }
             }
 
             let params = &self.params;
-            self.particles.pressure[i] = params.stiffness * (density - params.rest_density);
-            self.particles.near_pressure[i] = params.stiffness_near * near_density;
-        }
+            // Compute pressure and near-pressure
+            let pressure = params.stiffness * (density - params.rest_density);
+            let near_pressure = params.stiffness_near * near_density;
 
-        for i in 0..self.particles.count() {
-            let mut pressure = VectorN::new(0.0, 0.0);
-            // let mut viscosity = VectorN::new(0.0, 0.0);
-
+            let mut dx = VectorN::new(0.0, 0.0);
             for j in self.find_neighbors(i) {
                 if i == j {
                     continue;
                 }
                 let r = self.particles.position[j] - self.particles.position[i];
-
                 let q = r.magnitude() / self.params.smoothing_radius;
-                if q > 1.0 {
-                    continue;
+
+                if q < 1.0 {
+                    let D = dt.powi(2)
+                        * (pressure * (1.0 - q) + near_pressure * (1.0 - q).powi(2))
+                        * r.normalize();
+
+                    self.particles.position[j] += D / 2.0;
+                    dx -= D / 2.0;
                 }
-                let g = 1.0 - q;
-
-                let a = self.particles.pressure[i] * g;
-                let b = self.particles.near_pressure[i] * g.powi(2);
-                let d = r.normalize() * (a + b);
-                pressure += d / 2.0;
-                self.particles.acceleration[j] += d / 2.0;
             }
-            self.particles.acceleration[i] = -pressure + self.params.gravity;
-        }
-
-        for i in 0..self.particles.count() {
-            self.particles.velocity[i] += self.particles.acceleration[i] * dt;
-
-            self.particles.position[i] += self.particles.velocity[i] * dt;
-
-            if self.particles.position[i].magnitude_squared() > self.radius.powi(2) {
-                self.particles.position[i] = self.particles.position[i].normalize() * self.radius;
-                self.particles.velocity[i] *= -0.2;
-            }
-
-            self.particles.prev_acceleration[i] = self.particles.acceleration[i];
-            self.particles.prev_position[i] = self.particles.position[i];
-
-            self.particles.acceleration[i] = VectorN::new(0.0, 0.0);
+            self.particles.position[i] += dx;
         }
     }
 
-    pub fn find_neighbors(&self, i: usize) -> Vec<usize> {
+    fn find_neighbors(&self, i: usize) -> Vec<usize> {
         self.hashmap
             .query(self.particles.position[i].x, self.particles.position[i].y)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn get_neighbors(&self, i: usize) -> Vec<usize> {
+        self.find_neighbors(i)
     }
 }
